@@ -17,38 +17,57 @@ class ExchangeEngine(ExchangeEngineBase):
         self.feeRatio = 0.0026
         self.sleepTime = 5
         self.async_ = True  # 'async' is a keyword in Python 3, so rename it to 'async_'
+        self.debug = True
 
     def _sign_request(self, url, httpMethod, body={}, params={}):
         public = self.key['public']
         private = self.key['private']
-        nonce = str(int(time.time() * 1000))
+        nonce = str(int(round(time.time() * 1000000)))
         parsed_url = urlparse(url)
         path = parsed_url.path + ('?' + urlencode(params) if params else '')
-        body = body if body else ''
+        body = json.dumps(body) if body else ''
 
         data = nonce + httpMethod + path + body
+
         hash_obj = hmac.new(private.encode('utf-8'), data.encode('utf-8'), hashlib.sha256)
         signature = hash_obj.hexdigest()
 
-        return f'Bitso {public}:{nonce}:{signature}'
+        return {
+            'Authorization' : f'Bitso {public}:{nonce}:{signature}',
+        }
+    
+    def _debug_request(self, url, method, **args):
+        debug = requests.Request(method, url, **args)
+        prepared_request = debug.prepare()
+        print("-------------------")
+        print("Request Method:", prepared_request.method)
+        print("Request URL:", prepared_request.url)
+        print("Request Headers:")
+        for header, value in prepared_request.headers.items():
+            print(header + ":", value)
+        print("Request Body:", prepared_request.body)
+        print("-------------------")
 
     def _send_request(self, command, httpMethod, body={}, params={}, hook=None):
-        command = f'/{self.apiVersion}/{command}/'  # Using f-string for string formatting
+        command = f'/{self.apiVersion}/{command}/' 
 
         url = self.API_URL + command
-
+        headers = {}
         if httpMethod == "GET":
             R = grequests.get
         elif httpMethod == "POST":
             R = grequests.post
-
-        headers = {}
-        headers['Authorization'] = self._sign_request(url, httpMethod, body, params)
+        
+        headers.update(self._sign_request(url, httpMethod, body, params))
         
         args = {'params' : params, 'headers': headers}
+        if body:
+            args.update({'json':body})
         if hook:
             args['hooks'] = dict(response=hook)
 
+        if self.debug:
+            self._debug_request(url, httpMethod, **args)
         req = R(url, **args)
         if self.async_:
             return req
@@ -60,7 +79,7 @@ class ExchangeEngine(ExchangeEngineBase):
         return response
     
     def place_order(self, body):
-        return self._send_request('order','POST', body)
+        return self._send_request('orders','POST', body)
 
     def get_balance(self, tickers=[]):
         return self._send_request('balance', 'GET', {}, {}, [self.hook_getBalance(tickers=tickers)])
@@ -139,11 +158,6 @@ class ExchangeEngine(ExchangeEngineBase):
     def withdraw(self, ticker, withdrawalKey, amount):
         return self._send_request('private/Withdraw', 'POST', {'asset': ticker, 'key': withdrawalKey, 'amount': amount})
 
-    def place_order(self, ticker, action, amount, price):
-        action = 'buy' if action == 'bid' else 'sell'
-        data = {'pair': ticker, 'type': action, 'volume': str(amount), 'price': str(price), 'ordertype': 'limit'}
-        return self._send_request('private/AddOrder', 'POST', data)
-
     def get_ticker_lastPrice(self, ticker):
         return self._send_request(f'public/Ticker?pair={ticker}ZUSD', 'GET', {}, [self.hook_lastPrice(ticker=ticker)])
 
@@ -174,6 +188,7 @@ class TestBitsoApi(unittest.TestCase):
         self.engine.load_key('keys/bitso_stage.key')
         return super().setUp()
 
+    
     def test_get_balance_all(self):
         for res in grequests.map([self.engine.get_balance()]):
             self.assertIsNotNone(res.parsed)
@@ -181,6 +196,7 @@ class TestBitsoApi(unittest.TestCase):
             self.assertTrue(res.parsed)
             #print(json.dumps(res.parsed, indent=4))
 
+    
     def test_get_balance_tickers(self):
         for res in grequests.map([self.engine.get_balance(tickers=["usd","eth","btc"])]):
             self.assertIsNotNone(res.parsed)
@@ -188,9 +204,11 @@ class TestBitsoApi(unittest.TestCase):
             self.assertTrue(res.parsed)
             #print(json.dumps(res.parsed, indent=4))
 
+    
     def test_list_available_books(self):
         self.get_books()
 
+    
     def test_list_available_books_symbol(self):
         self.get_books(books = ['eth_mxn', 'eth_btc', 'btc_mxn'])
 
@@ -216,14 +234,15 @@ class TestBitsoApi(unittest.TestCase):
         self.assertIn('book', ticker_data)
         self.assertEqual(ticker_data['book'], symbol)
         return ticker_data
-
+    
+    
     def test_get_all_tickers(self):
         books = self.get_books()
         for index, symbol in enumerate(books):
             if index >= 10:
                 break
             self.get_ticker(symbol=symbol)
-
+    
     def test_get_specific_tickers(self):
         books = self.get_books(books=['eth_mxn', 'eth_btc', 'btc_mxn'])
         for symbol in books:
@@ -231,6 +250,7 @@ class TestBitsoApi(unittest.TestCase):
 
     def test_get_order_book(self):
         self.get_order_book('btc_mxn')
+
 
     def get_order_book(self, book):
         order_book_response = grequests.map([self.engine.list_order_book(book=book)])
@@ -243,6 +263,20 @@ class TestBitsoApi(unittest.TestCase):
         self.assertIn('bids', order_book)
         self.assertIn('asks', order_book)
         return order_book
+    
+    def test_place_order(self):
+        order = {
+            'book':'btc_mxn',
+            'minor':200,
+            'type':'market',
+            'side':'buy'
+        }
+        response = grequests.map([self.engine.place_order(order)])
+        self.assertIsNotNone(response)
+        self.assertGreater(len(response), 0)
+        response = response[0]
+        self.assertEqual(response.status_code, 200)
+        print(response)
 
 if __name__ == '__main__':
     unittest.main()
