@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import calendar
 import grequests
 from base import ExchangeEngineBase
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
 import requests
 
 class ExchangeEngine(ExchangeEngineBase):
@@ -18,17 +18,19 @@ class ExchangeEngine(ExchangeEngineBase):
         self.sleepTime = 5
         self.async_ = True  # 'async' is a keyword in Python 3, so rename it to 'async_'
 
-    def _sign_request(self, url, httpMethod, body, api_key, api_secret):
+    def _sign_request(self, url, httpMethod, body={}, params={}):
+        public = self.key['public']
+        private = self.key['private']
         nonce = str(int(time.time() * 1000))
         parsed_url = urlparse(url)
-        path = parsed_url.path + ('?' + parsed_url.query if parsed_url.query else '')
+        path = parsed_url.path + ('?' + urlencode(params) if params else '')
         body = body if body else ''
 
         data = nonce + httpMethod + path + body
-        hash_obj = hmac.new(api_secret.encode('utf-8'), data.encode('utf-8'), hashlib.sha256)
+        hash_obj = hmac.new(private.encode('utf-8'), data.encode('utf-8'), hashlib.sha256)
         signature = hash_obj.hexdigest()
 
-        return f'Bitso {api_key}:{nonce}:{signature}'
+        return f'Bitso {public}:{nonce}:{signature}'
 
     def _send_request(self, command, httpMethod, body={}, params={}, hook=None):
         command = f'/{self.apiVersion}/{command}/'  # Using f-string for string formatting
@@ -41,7 +43,7 @@ class ExchangeEngine(ExchangeEngineBase):
             R = grequests.post
 
         headers = {}
-        headers['Authorization'] = self._sign_request(url, httpMethod, body, self.key['public'], self.key['private'])
+        headers['Authorization'] = self._sign_request(url, httpMethod, body, params)
         
         args = {'params' : params, 'headers': headers}
         if hook:
