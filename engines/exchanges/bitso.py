@@ -6,9 +6,10 @@ import unittest
 from datetime import datetime, timedelta
 import calendar
 import grequests
-from base import ExchangeEngineBase
+from engines.exchanges.base import ExchangeEngineBase
 from urllib.parse import urlparse, urlencode
 import requests
+
 
 class ExchangeEngine(ExchangeEngineBase):
     def __init__(self):
@@ -33,9 +34,9 @@ class ExchangeEngine(ExchangeEngineBase):
         signature = hash_obj.hexdigest()
 
         return {
-            'Authorization' : f'Bitso {public}:{nonce}:{signature}',
+            'Authorization': f'Bitso {public}:{nonce}:{signature}',
         }
-    
+
     def _debug_request(self, url, method, **args):
         debug = requests.Request(method, url, **args)
         prepared_request = debug.prepare()
@@ -49,7 +50,7 @@ class ExchangeEngine(ExchangeEngineBase):
         print("-------------------")
 
     def _send_request(self, command, httpMethod, body={}, params={}, hook=None):
-        command = f'/{self.apiVersion}/{command}/' 
+        command = f'/{self.apiVersion}/{command}/'
 
         url = self.API_URL + command
         headers = {}
@@ -61,10 +62,10 @@ class ExchangeEngine(ExchangeEngineBase):
             R = grequests.delete
 
         headers.update(self._sign_request(url, httpMethod, body, params))
-        
-        args = {'params' : params, 'headers': headers}
+
+        args = {'params': params, 'headers': headers}
         if body:
-            args.update({'json':body})
+            args.update({'json': body})
         if hook:
             args['hooks'] = dict(response=hook)
 
@@ -79,25 +80,27 @@ class ExchangeEngine(ExchangeEngineBase):
         if 'error' in response:
             print(response)
         return response
-    
+
     def get_ticker_last_price(self, book):
-        return self._send_request('trades', 'GET', {}, {'book':book,'sort':'desc'},[self.hook_tickerlastprice(book=book)])
-    
+        return self._send_request('ticker', 'GET', {}, {'book' : book},
+                                  [self.hook_tickerlastprice(book=book)])
+
     def hook_tickerlastprice(self, *factory_args, **factory_kwargs):
         def res_hook(r, *r_args, **r_kwargs):
             json_data = r.json()
             r.parsed = {}
-            last_price = json_data['payload'][0]
-            r.parsed[factory_kwargs['book']] = float(last_price['price'])
+            last_price = json_data['payload']['last']
+            r.parsed[factory_kwargs['book']] = float(last_price)
 
         return res_hook
 
     def place_order(self, body):
-        return self._send_request('orders','POST', body)
+        return self._send_request('orders', 'POST', body)
 
     def get_balance(self, tickers=[]):
-        return self._send_request('balance', 'GET', {}, {}, [self.hook_getBalance(tickers=[ticker.lower() for ticker in tickers])])
-    
+        return self._send_request('balance', 'GET', {}, {},
+                                  [self.hook_getBalance(tickers=[ticker.lower() for ticker in tickers])])
+
     def hook_getBalance(self, *factory_args, **factory_kwargs):
         def res_hook(r, *r_args, **r_kwargs):
             json_data = r.json()
@@ -112,19 +115,21 @@ class ExchangeEngine(ExchangeEngineBase):
                 r.parsed[ticker['currency']] = ticker['available']
 
         return res_hook
-    
+
     def list_order_book(self, book):
-        return self._send_request('order_book','GET', {}, {'book' : book, 'aggregate': True})
+        return self._send_request('order_book', 'GET', {}, {'book': book, 'aggregate': True})
 
     def get_order_book_innermost(self, book):
-        return self._send_request('order_book','GET', {}, {'book' : book, 'aggregate': True}, [self.hook_order_book_innermost(book=book)])
-    
+        return self._send_request('order_book', 'GET', {}, {'book': book, 'aggregate': True},
+                                  [self.hook_order_book_innermost(book=book)])
+
     def hook_order_book_innermost(self, *factory_args, **factory_kwargs):
         def res_hook(r, *r_args, **r_kwargs):
             json_data = r.json()
             r.parsed = {}
             book = json_data['payload']
             r.parsed = {
+                'book': factory_kwargs['book'],
                 'bid': {
                     'price': float(book['bids'][0]['price']),
                     'amount': float(book['bids'][0]['amount'])
@@ -134,16 +139,14 @@ class ExchangeEngine(ExchangeEngineBase):
                     'amount': float(book['asks'][0]['amount'])
                 }
             }
-            print(r.parsed)
-            print('-----')
         return res_hook
 
     def get_ticker(self, symbol):
-        return self._send_request('ticker', 'GET', {}, {'book' : symbol})
+        return self._send_request('ticker', 'GET', {}, {'book': symbol})
 
     def get_available_books(self, books=[]):
         return self._send_request('available_books', 'GET', {}, {}, [self.hook_get_available_books(books=books)])
-    
+
     def hook_get_available_books(self, *factory_args, **factory_kwargs):
         def res_hook(r, *r_args, **r_kwargs):
             json_data = r.json()
@@ -155,10 +158,11 @@ class ExchangeEngine(ExchangeEngineBase):
                 filtered = books
             for book in filtered:
                 r.parsed[book['book']] = {
-                    'fees' :  book['fees']['flat_rate'] ,
-                    'minimum_price' : book['minimum_price'],
-                    'default_chart' : book['default_chart']
+                    'fees': book['fees']['flat_rate'],
+                    'minimum_price': book['minimum_price'],
+                    'default_chart': book['default_chart']
                 }
+
         return res_hook
 
     def cancel_all_orders(self):
@@ -168,77 +172,26 @@ class ExchangeEngine(ExchangeEngineBase):
         return self._send_request(f'orders/{oid}', 'DELETE')
 
     def list_open_orders(self, book='all'):
-        return self._send_request('open_orders','GET', {}, {'book':book})
-    
+        return self._send_request('open_orders', 'GET', {}, {'book': book})
+
     def lookup_order(self, oid):
         return self._send_request(f'/orders/{oid}', 'GET')
 
     def list_fees(self, books=[]):
-        return self._send_request('fees','GET',{},{},[self.list_fees_hook(books=books)])
-    
+        return self._send_request('fees', 'GET', {}, {}, [self.list_fees_hook(books=books)])
+
     def list_fees_hook(*factory_args, **factory_kwargs):
         def res_hook(r, *r_args, **r_kwargs):
             json_data = r.json()['payload']['fees']
             r.parsed = {}
             if factory_kwargs['books']:
-                filtered = list(filter(lambda book : book['book'] in factory_kwargs['books'], json_data))
+                filtered = list(filter(lambda book: book['book'] in factory_kwargs['books'], json_data))
             else:
                 filtered = json_data
             for book in filtered:
                 r.parsed[book['book']] = book
-        return res_hook
-
-    ### Delete these
-
-    def hook_orderBook(self, r, *r_args, **r_kwargs):
-        json_data = r.json()
-        ticker = next(iter(json_data['result']))
-        result = json_data['result'][ticker]
-        r.parsed = {
-            'bid': {
-                'price': float(result['bids'][0][0]),
-                'amount': float(result['bids'][0][1])
-            },
-            'ask': {
-                'price': float(result['asks'][0][0]),
-                'amount': float(result['asks'][0][1])
-            }
-        }
-
-    def get_open_order(self):
-        return self._send_request('private/OpenOrders', 'POST', {}, self.hook_openOrder)
-
-    def hook_openOrder(self, r, *r_args, **r_kwargs):
-        json_data = r.json()
-        r.parsed = []
-        for order in json_data['result']:
-            r.parsed.append({'orderId': str(order['OrderUuid']), 'created': order['Opened']})
-
-    def withdraw(self, ticker, withdrawalKey, amount):
-        return self._send_request('private/Withdraw', 'POST', {'asset': ticker, 'key': withdrawalKey, 'amount': amount})
-
-    def get_ticker_lastPrice(self, ticker):
-        return self._send_request(f'public/Ticker?pair={ticker}ZUSD', 'GET', {}, [self.hook_lastPrice(ticker=ticker)])
-
-    def hook_lastPrice(self, *factory_args, **factory_kwargs):
-        def res_hook(r, *r_args, **r_kwargs):
-            json_data = r.json()
-            r.parsed = {}
-            r.parsed[factory_kwargs['ticker']] = float(next(iter(json_data['result'].values()))['c'][0])
 
         return res_hook
-
-    def get_ticker_history(self, ticker, timeframe='1'):
-        since = calendar.timegm((datetime.utcnow() - timedelta(hours=1)).timetuple())
-        return self._send_request(f'public/OHLC?pair={ticker}&interval={timeframe}&since={since}', 'GET')
-
-    def parseTickerData(self, ticker, tickerData):
-        vwapIndex = 5
-        for key in tickerData['result'].keys():
-            if isinstance(tickerData['result'][key], list):
-                return {'exchange': self.key['exchange'], 'ticker': ticker,
-                        'data': list(map(lambda x: {'price': x[vwapIndex]}, tickerData['result'][key]))}
-
 
 class TestBitsoApi(unittest.TestCase):
 
@@ -254,41 +207,38 @@ class TestBitsoApi(unittest.TestCase):
         response = res[0]
         self.assertEqual(response.status_code, 200)
         return response
-    
+
     def test_get_balance_all(self):
         for res in grequests.map([self.engine.get_balance()]):
             self.assertIsNotNone(res.parsed)
             self.assertGreater(len(res.parsed), 0)
             self.assertTrue(res.parsed)
-            #print(json.dumps(res.parsed, indent=4))
+            # print(json.dumps(res.parsed, indent=4))
 
-    
     def test_get_balance_tickers(self):
-        for res in grequests.map([self.engine.get_balance(tickers=["usd","eth","btc"])]):
+        for res in grequests.map([self.engine.get_balance(tickers=["usd", "eth", "btc"])]):
             self.assertIsNotNone(res.parsed)
             self.assertGreater(len(res.parsed), 0)
             self.assertTrue(res.parsed)
-            #print(json.dumps(res.parsed, indent=4))
+            # print(json.dumps(res.parsed, indent=4))
 
-    
     def test_list_available_books(self):
         self.get_books()
 
-    
     def test_list_available_books_symbol(self):
-        self.get_books(books = ['eth_mxn', 'eth_btc', 'btc_mxn'])
+        self.get_books(books=['eth_mxn', 'eth_btc', 'btc_mxn'])
 
-    def get_books(self, books = None):
+    def get_books(self, books=None):
         res = grequests.map([self.engine.get_available_books(books=books)])
         response = self.validate_api_response(res)
         parsed = response.parsed
         self.assertIsNotNone(parsed)
-        self.assertTrue(parsed)  
+        self.assertTrue(parsed)
         if books:
             for book in books:
-                self.assertIn(book, parsed)      
+                self.assertIn(book, parsed)
         return parsed
-    
+
     def get_ticker(self, symbol):
         res = grequests.map([self.engine.get_ticker(symbol=symbol)])
         response = self.validate_api_response(res)
@@ -297,14 +247,14 @@ class TestBitsoApi(unittest.TestCase):
         self.assertIn('book', ticker_data)
         self.assertEqual(ticker_data['book'], symbol)
         return ticker_data
-     
+
     def test_get_all_tickers(self):
         books = self.get_books()
         for index, symbol in enumerate(books):
             if index >= 10:
                 break
             self.get_ticker(symbol=symbol)
-    
+
     def test_get_specific_tickers(self):
         books = self.get_books(books=['eth_mxn', 'eth_btc', 'btc_mxn'])
         for symbol in books:
@@ -321,7 +271,7 @@ class TestBitsoApi(unittest.TestCase):
         self.assertIn('bids', order_book)
         self.assertIn('asks', order_book)
         return order_book
-    
+
     def test_get_orderbook_innermost(self):
         self.get_orderbook_innermost('btc_mxn')
 
@@ -334,41 +284,41 @@ class TestBitsoApi(unittest.TestCase):
 
     def test_market_order(self):
         order = {
-            'book':'btc_mxn',
-            'minor':200,
-            'type':'market',
-            'side':'buy'
+            'book': 'btc_mxn',
+            'minor': 200,
+            'type': 'market',
+            'side': 'buy'
         }
         res = grequests.map([self.engine.place_order(order)])
         response = self.validate_api_response(res)
 
     def test_buy_then_sell_market_order(self):
         buy_order = {
-            'book':'btc_mxn',
-            'minor':200,
-            'type':'market',
-            'side':'buy'
+            'book': 'btc_mxn',
+            'minor': 200,
+            'type': 'market',
+            'side': 'buy'
         }
         sell_order = {
-            'book':'btc_mxn',
-            'minor':200,
-            'type':'market',
-            'side':'sell'
+            'book': 'btc_mxn',
+            'minor': 200,
+            'type': 'market',
+            'side': 'sell'
         }
-        r = grequests.map([self.engine.get_balance(tickers = ['BTC','MXN'])])
+        r = grequests.map([self.engine.get_balance(tickers=['BTC', 'MXN'])])
         mxn_balance_1 = self.validate_api_response(r).parsed['mxn']
-        
+
         res = grequests.map([self.engine.place_order(buy_order)])
         self.validate_api_response(res)
-        
-        r = grequests.map([self.engine.get_balance(tickers = ['BTC','MXN'])])
+
+        r = grequests.map([self.engine.get_balance(tickers=['BTC', 'MXN'])])
         mxn_balance_2 = self.validate_api_response(r).parsed['mxn']
         self.assertEqual(float(mxn_balance_1), float(mxn_balance_2) + 200)
 
         res = grequests.map([self.engine.place_order(sell_order)])
         self.validate_api_response(res)
 
-        r = grequests.map([self.engine.get_balance(tickers = ['BTC','MXN'])])
+        r = grequests.map([self.engine.get_balance(tickers=['BTC', 'MXN'])])
         mxn_balance_3 = self.validate_api_response(r).parsed['mxn']
         self.assertEqual(float(mxn_balance_1), float(mxn_balance_3))
 
@@ -386,11 +336,11 @@ class TestBitsoApi(unittest.TestCase):
         btc_amount = mxn_amount / otm_bid
         # do a limit order OTM
         order = {
-            'book':'btc_mxn',
-            'major':btc_amount,
-            'type':'limit',
-            'side':'buy',
-            'price':otm_bid
+            'book': 'btc_mxn',
+            'major': btc_amount,
+            'type': 'limit',
+            'side': 'buy',
+            'price': otm_bid
         }
         res = grequests.map([self.engine.place_order(order)])
         oid = self.validate_api_response(res).json()['payload']['oid']
@@ -402,9 +352,9 @@ class TestBitsoApi(unittest.TestCase):
         r = grequests.map([self.engine.cancel_order(open_order['oid'])])
         cancel_response = self.validate_api_response(r).json()['payload'][0]
         self.assertEqual(cancel_response, oid)
-        
+
     def test_list_fees(self):
-        books = ['btc_mxn','eth_btc']
+        books = ['btc_mxn', 'eth_btc']
         r = grequests.map([self.engine.list_fees(books=books)])
         response = self.validate_api_response(r).parsed
         for book in books:
@@ -420,7 +370,6 @@ class TestBitsoApi(unittest.TestCase):
         response = self.validate_api_response(r).parsed
         self.assertTrue(response)
 
-    
 
 if __name__ == '__main__':
     # run all tests

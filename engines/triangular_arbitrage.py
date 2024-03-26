@@ -1,268 +1,198 @@
-import time
-from time import strftime
+from datetime import datetime
+import unittest
 import grequests
-import os 
-import sys
+import json
 
-from engines.exchanges.loader import EngineLoader
+from exchanges.bitso import ExchangeEngine
+
+
+def printwt(msg):
+    print(f'{datetime.utcnow()} :: {msg}')
+
+
+def _send_requests(requests):
+    responses = grequests.map(requests)
+    for response in responses:
+        if not response:
+            printwt(responses)
+            raise Exception
+    return responses
+
 
 class CryptoEngineTriArbitrage(object):
-    def __init__(self, exchange, mock=False):
-        self.exchange = exchange
+    def __init__(self, config, engine, mock=False):
         self.mock = mock
+        self.config = config
+        self.tickerPairA = config['tickerPairA']
+        self.tickerPairB = config['tickerPairB']
+        self.tickerPairC = config['tickerPairC']
+        self.tickerA = config['tickerA']
+        self.tickerB = config['tickerB']
+        self.tickerC = config['tickerC']
+        self.tickers = [self.tickerA, self.tickerB, self.tickerC]
         self.minProfitUSDT = 0.3
-        self.hasOpenOrder = True # always assume there are open orders first
+        self.hasOpenOrder = True  # always assume there are open orders first
         self.openOrderCheckCount = 0
-      
-        self.engine = EngineLoader.getEngine(self.exchange['exchange'], self.exchange['keyFile'])
+        self.engine = engine
+        self.engine.load_key('keys/bitso_stage.key')
 
-    def start_engine(self):
-        print(strftime('%Y%m%d%H%M%S') + ' starting Triangular Arbitrage Engine...')
+    def start(self):
+        printwt("Starting Triangular Arbitrage")
+        print(self.config)
         if self.mock:
-            print('---------------------------- MOCK MODE ----------------------------')
-        #Send the request asynchronously
+            print("------------Mock Mode----------")
         while True:
             try:
                 if not self.mock and self.hasOpenOrder:
-                    self.check_openOrder()
-                elif self.check_balance():           
-                    bookStatus = self.check_orderBook()
-                    if bookStatus['status']:
-                        self.place_order(bookStatus['orderInfo'])
+                    self.check_order_book()
+                else:
+                    self.check_order_book()
             except Exception as e:
-                # raise
                 print(e)
-            
-            time.sleep(self.engine.sleepTime)
-    
-    def check_openOrder(self):
-        if self.openOrderCheckCount >= 5:
-            self.cancel_allOrders()
-        else:
-            print('checking open orders...')
-            rs = [self.engine.get_open_order()]
-            responses = self.send_request(rs)
 
-            if not responses[0]:
-                print(responses)
-                return False
-            
-            if responses[0].parsed:
-                self.engine.openOrders = responses[0].parsed
-                print(self.engine.openOrders)
-                self.openOrderCheckCount += 1
+    def get_last_prices(self):
+        requests = [self.engine.get_ticker_last_price(self.tickerPairA),
+                    self.engine.get_ticker_last_price(self.tickerPairB),
+                    self.engine.get_ticker_last_price(self.tickerPairC)]
+        last_prices = []
+        printwt('Last Prices')
+        for response in _send_requests(requests):
+            last_prices.append(response.parsed)
+            print(response.parsed)
+        return last_prices
+
+    def get_order_book_innermost(self):
+        printwt('Innermost prices in order book')
+        requests = [self.engine.get_order_book_innermost(self.tickerPairA),
+                    self.engine.get_order_book_innermost(self.tickerPairB),
+                    self.engine.get_order_book_innermost(self.tickerPairC)]
+        res = [response.parsed for response in _send_requests(requests)]
+        for response in res:
+            print(response)
+        return res
+
+    def get_balances_and_price_in_mxn(self):
+        res = grequests.map([self.engine.get_balance(tickers=[self.tickerA,self.tickerB,self.tickerC])])[0].parsed
+        for asset in res:
+            res[asset] = float(res[asset])
+        for asset in res:
+            if asset != 'mxn':
+                price = grequests.map([self.engine.get_ticker_last_price(book=f'{asset}_mxn')])[0].parsed
+                res[asset] = {
+                    'ticker': asset,
+                    'balance_in_mx': res[asset] * float(price[next(iter(price))]),
+                    'balance': res[asset],
+                    'price': float(price[next(iter(price))])
+                }
             else:
-                self.hasOpenOrder = False
-                print('no open orders')
-                print('starting to check order book...')
-    
-    def cancel_allOrders(self):
-        print('cancelling all open orders...')
-        rs = []
-        print(self.exchange['exchange'])
-        for order in self.engine.openOrders:
-            print(order)
-            rs.append(self.engine.cancel_order(order['orderId']))
+                res[asset] = {
+                    'ticker': asset,
+                    'balance_in_mx': res[asset],
+                    'balance': res[asset],
+                    'price': 1
+                }
+        return res
 
-        responses = self.send_request(rs)
-        
-        self.engine.openOrders = []
-        self.hasOpenOrder = False
-        
+    def get_fees(self):
+        res = grequests.map([self.engine.list_fees(books=[self.tickerPairA,self.tickerPairB,self.tickerPairC])])
+        return res[0].parsed
 
-    #Check and set current balance
-    def check_balance(self):
-        rs = [self.engine.get_balance([
-            self.exchange['tickerA'],
-            self.exchange['tickerB'],
-            self.exchange['tickerC']
-            ])]
+    def get_balances(self):
+        res = grequests.map([self.engine.get_balance(tickers=[self.tickerA,self.tickerB,self.tickerC])])
+        return res[0].parsed
 
-        responses = self.send_request(rs)
 
-        self.engine.balance = responses[0].parsed
+    def check_order_book(self):
+        # Get last prices
+        last_prices = self.get_last_prices()
+        # Get innermost from orderbook
+        innermost = self.get_order_book_innermost()
+        # get fees
+        fees = self.get_fees()
+        # calculate bid and ask routes based on innermost order book info
+        # bid route
+        bid_route_result = (1 / innermost[0]['ask']['price']) / innermost[1]['ask']['price'] * innermost[2]['bid']['price']
+        # ask route
+        ask_route_result = (1 * innermost[0]['bid']['price']) / innermost[2]['ask']['price'] * innermost[1]['bid']['price']
+        print(f'Bid Route Result: {bid_route_result}')
+        print(f'Ask Route Result: {ask_route_result}')
+        # status = 1 is bid, status = 2 is ask, status = 0 means no opportunity available
+        cond = (bid_route_result > 1 and ask_route_result > 1 and (bid_route_result - 1) * last_prices[0] > (ask_route_result - 1) *
+         last_prices[1])
 
-        ''' Not needed? '''
-        # if not self.mock:
-        #     for res in responses:
-        #         for ticker in res.parsed:
-        #             if res.parsed[ticker] < 0.05:
-        #                 print ticker, res.parsed[ticker], '- Not Enough'
-        #                 return False
-        return True
-    
-    def check_orderBook(self):
-        rs = [self.engine.get_ticker_lastPrice(self.exchange['tickerA']),
-            self.engine.get_ticker_lastPrice(self.exchange['tickerB']),
-            self.engine.get_ticker_lastPrice(self.exchange['tickerC']),
-        ]
-        lastPrices = []
-        for res in self.send_request(rs):
-            lastPrices.append(next(res.parsed.values()))
-
-        rs = [self.engine.get_ticker_orderBook_innermost(self.exchange['tickerPairA']),
-              self.engine.get_ticker_orderBook_innermost(self.exchange['tickerPairB']),
-              self.engine.get_ticker_orderBook_innermost(self.exchange['tickerPairC']),
-              ]
-
-        responses = self.send_request(rs)
-        
-        if self.mock:
-            print('{0} - {1}; {2} - {3}; {4} - {5}'.format(
-                self.exchange['tickerPairA'],
-                responses[0].parsed,
-                self.exchange['tickerPairB'],
-                responses[1].parsed,
-                self.exchange['tickerPairC'],
-                responses[2].parsed
-                ))
-        
-        # bid route BTC->ETH->LTC->BTC
-        bidRoute_result = (1 / responses[0].parsed['ask']['price']) \
-                            / responses[1].parsed['ask']['price']   \
-                            * responses[2].parsed['bid']['price']  
-        # ask route ETH->BTC->LTC->ETH
-        askRoute_result = (1 * responses[0].parsed['bid']['price']) \
-                            / responses[2].parsed['ask']['price']   \
-                            * responses[1].parsed['bid']['price']
-        
-        # Max amount for bid route & ask routes can be different and so less profit
-        if bidRoute_result > 1 or \
-        (bidRoute_result > 1 and askRoute_result > 1 and (bidRoute_result - 1) * lastPrices[0] > (askRoute_result - 1) * lastPrices[1]):
-            status = 1 # bid route
-        elif askRoute_result > 1:
-            status = 2 # ask route
+        if bid_route_result > ask_route_result or cond:
+            status = 1
+        elif ask_route_result > 1:
+            status = 2
         else:
-            status = 0 # do nothing
-        
-        if status > 0:
-            maxAmounts = self.getMaxAmount(lastPrices, responses, status)
-            fee = 0
-            for index, amount in enumerate(maxAmounts):
-                fee += amount * lastPrices[index]
-            fee *= self.engine.feeRatio
-            
-            bidRoute_profit = (bidRoute_result - 1) * lastPrices[0] * maxAmounts[0]
-            askRoute_profit = (askRoute_result - 1) * lastPrices[1] * maxAmounts[1]
-            # print 'bidRoute_profit - {0} askRoute_profit - {1} fee - {2}'.format(
-            #     bidRoute_profit, askRoute_profit, fee
-            # )
-            if status == 1 and bidRoute_profit - fee > self.minProfitUSDT:
-                print(strftime('%Y%m%d%H%M%S') + ' Bid Route: Result - {0} Profit - {1} Fee - {2}'.format(bidRoute_result, bidRoute_profit, fee))
-                orderInfo = [
-                    {
-                        "tickerPair": self.exchange['tickerPairA'],
-                        "action": "bid",
-                        "price": responses[0].parsed['ask']['price'],
-                        "amount": maxAmounts[0]
-                    },
-                    {
-                        "tickerPair": self.exchange['tickerPairB'],
-                        "action": "bid",
-                        "price": responses[1].parsed['ask']['price'],
-                        "amount": maxAmounts[1]
-                    },
-                    {
-                        "tickerPair": self.exchange['tickerPairC'],
-                        "action": "ask",
-                        "price": responses[2].parsed['bid']['price'],
-                        "amount": maxAmounts[2]
-                    }                                        
-                ]
-                return {'status': 1, "orderInfo": orderInfo}
-            elif status == 2 and askRoute_profit - fee > self.minProfitUSDT:
-                print(strftime('%Y%m%d%H%M%S') + ' Ask Route: Result - {0} Profit - {1} Fee - {2}'.format(askRoute_result, askRoute_profit, fee))
-                orderInfo = [
-                    {
-                        "tickerPair": self.exchange['tickerPairA'],
-                        "action": "ask",
-                        "price": responses[0].parsed['bid']['price'],
-                        "amount": maxAmounts[0]
-                    },
-                    {
-                        "tickerPair": self.exchange['tickerPairB'],
-                        "action": "ask",
-                        "price": responses[1].parsed['bid']['price'],
-                        "amount": maxAmounts[1]
-                    },
-                    {
-                        "tickerPair": self.exchange['tickerPairC'],
-                        "action": "bid",
-                        "price": responses[2].parsed['ask']['price'],
-                        "amount": maxAmounts[2]
-                    }                                        
-                ]               
-                return {'status': 2, 'orderInfo': orderInfo}
-        return {'status': 0}
+            status = 0
 
-    # Using USDT may not be accurate
-    def getMaxAmount(self, lastPrices, orderBookRes, status):
-        maxUSDT = []
-        for index, tickerIndex in enumerate(['tickerA', 'tickerB', 'tickerC']):
-            # 1: 'bid', -1: 'ask'
-            if index == 0: bid_ask = -1
-            elif index == 1: bid_ask = -1
-            else: bid_ask = 1
-            # switch for ask route
-            if status == 2: bid_ask *= -1
+        # if there is an oportunity, check the max amout that can be traded of each ticker considering our balance
+
+
+    def get_max_amounts(self, innermost, fees, status):
+        max = []
+        balances = self.get_balances_and_price_in_mxn()
+        for index, ticker in enumerate([self.tickerA, self.tickerB, self.tickerC]):
+
+            # for a bid route:
+            # -- first ticker is an ask
+            # -- second ticker is an ask
+            # -- third ticker is a bid
+            bid_ask = 1 if index == 2 else -1
+
+            # for an ask route we reverse it
+            bid_ask = -1*bid_ask if status == 2 else bid_ask
+
+            # convert the number to either 'bid' or 'ask'
             bid_ask = 'bid' if bid_ask == 1 else 'ask'
-            
-            maxBalance = min(orderBookRes[index].parsed[bid_ask]['amount'], self.engine.balance[self.exchange[tickerIndex]])
-            # print '{0} orderBookAmount - {1} ownAmount - {2}'.format(
-            #     self.exchange[tickerIndex], 
-            #     orderBookRes[index].parsed[bid_ask]['amount'], 
-            #     self.engine.balance[self.exchange[tickerIndex]]
-            # )
-            USDT = maxBalance * lastPrices[index] * (1 - self.engine.feeRatio)
-            if not maxUSDT or USDT < maxUSDT: 
-                maxUSDT = USDT       
 
-        maxAmounts = []
-        for index, tickerIndex in enumerate(['tickerA', 'tickerB', 'tickerC']):
-            # May need to handle scientific notation
-            maxAmounts.append(maxUSDT / lastPrices[index])
+            # get max amount based on the innermost orderbook
+            max_amnt_book = innermost[index][bid_ask]['amount']*balances[ticker]['price']
+            max_amnt_balance = balances[ticker]['balance_in_mx']
+            max_balance = min(max_amnt_balance, max_amnt_book)
 
-        return maxAmounts
+            fee_percent = float(fees[innermost[index]['book']]['taker_fee_percent'])/100
 
-    def place_order(self, orderInfo):
-        print(orderInfo)
-        rs = []
-        for order in orderInfo:
-            rs.append(self.engine.place_order(
-                order['tickerPair'],
-                order['action'],
-                order['amount'],
-                order['price'])
-            )
+            max_balance = max_balance * (1 - fee_percent)
 
-        if not self.mock:
-            responses = self.send_request(rs)
 
-        self.hasOpenOrder = True
-        self.openOrderCheckCount = 0
+            if not max or max_balance > max:
+                max = max_balance
 
-    def send_request(self, rs):
-        responses = grequests.map(rs)
-        for res in responses:
-            if not res:
-                print(responses)
-                raise Exception
-        return responses
+        max_amounts = []
+        for index, ticker in enumerate([self.tickerA, self.tickerB, self.tickerC]):
+            max_amounts.append(max/last_price)
 
-    def run(self):
-        self.start_engine()
+
+
+class TestTriangularArbitrage(unittest.TestCase):
+
+    def setUp(self) -> None:
+        f = open('arbitrage_config.json')
+        arbitrage_config = json.load(f)
+        f.close()
+        self.engine = ExchangeEngine()
+        self.triangular_arb = CryptoEngineTriArbitrage(arbitrage_config, self.engine, mock=True)
+        return super().setUp()
+
+    def test_triangular_arbitrage(self):
+        self.triangular_arb.start()
+
+    def test_get_max_amounts(self):
+        last_prices = self.triangular_arb.get_last_prices()
+        innermost = self.triangular_arb.get_order_book_innermost()
+        fees = self.triangular_arb.get_fees()
+        # bid route
+        status = 1
+        # Get max amount
+        self.triangular_arb.get_max_amounts(innermost, fees, status)
+
 
 if __name__ == '__main__':
-    exchange = {
-        'exchange': 'bittrex',
-        'keyFile': '../keys/bittrex.key',
-        'tickerPairA': 'BTC-ETH',
-        'tickerPairB': 'ETH-LTC',
-        'tickerPairC': 'BTC-LTC',
-        'tickerA': 'BTC',
-        'tickerB': 'ETH',
-        'tickerC': 'LTC'
-    }    
-    engine = CryptoEngineTriArbitrage(exchange, True)
-    #engine = CryptoEngineTriArbitrage(exchange)
-    engine.run()
+    # run all tests
+    # unittest.main()
+    # run a specific test
+    suite = unittest.TestSuite()
+    suite.addTest(TestTriangularArbitrage('test_get_max_amounts'))  # Include only the test you want to run
+    unittest.TextTestRunner().run(suite)
