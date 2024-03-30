@@ -112,7 +112,7 @@ class ExchangeEngine(ExchangeEngineBase):
                 filtered = balances
 
             for ticker in filtered:
-                r.parsed[ticker['currency']] = ticker['available']
+                r.parsed[ticker['currency']] = float(ticker['available'])
 
         return res_hook
 
@@ -171,8 +171,8 @@ class ExchangeEngine(ExchangeEngineBase):
     def cancel_order(self, oid):
         return self._send_request(f'orders/{oid}', 'DELETE')
 
-    def list_open_orders(self, book='all'):
-        return self._send_request('open_orders', 'GET', {}, {'book': book})
+    def list_open_orders(self, book=None):
+        return self._send_request('open_orders', 'GET', {}, {'book': book}) if book else self._send_request('open_orders', 'GET')
 
     def lookup_order(self, oid):
         return self._send_request(f'/orders/{oid}', 'GET')
@@ -284,8 +284,8 @@ class TestBitsoApi(unittest.TestCase):
 
     def test_market_order(self):
         order = {
-            'book': 'btc_mxn',
-            'minor': 200,
+            'book': 'eth_mxn',
+            'minor': 5000,
             'type': 'market',
             'side': 'buy'
         }
