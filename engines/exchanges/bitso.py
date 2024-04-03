@@ -12,8 +12,8 @@ import requests
 
 
 class ExchangeEngine(ExchangeEngineBase):
-    def __init__(self):
-        self.API_URL = 'https://stage.bitso.com/api'
+    def __init__(self, url):
+        self.API_URL = url
         self.apiVersion = 'v3'
         self.feeRatio = 0.0026
         self.sleepTime = 5
@@ -196,7 +196,7 @@ class ExchangeEngine(ExchangeEngineBase):
 class TestBitsoApi(unittest.TestCase):
 
     def setUp(self) -> None:
-        self.engine = ExchangeEngine()
+        self.engine = ExchangeEngine('https://stage.bitso.com/api')
         self.engine.load_key('keys/bitso_stage.key')
         return super().setUp()
 
@@ -375,6 +375,6 @@ if __name__ == '__main__':
     # run all tests
     unittest.main()
     # run a specific test
-    # suite = unittest.TestSuite()
-    # suite.addTest(TestBitsoApi('test_limit_order'))  # Include only the test you want to run
-    # unittest.TextTestRunner().run(suite)
+    #suite = unittest.TestSuite()
+    #suite.addTest(TestBitsoApi('test_limit_order'))  # Include only the test you want to run
+    #unittest.TextTestRunner().run(suite)

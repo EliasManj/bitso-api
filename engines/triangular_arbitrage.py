@@ -36,7 +36,7 @@ class CryptoEngineTriArbitrage(object):
         self.open_orders = True
         self.openOrderCheckCount = 0
         self.engine = engine
-        self.engine.load_key('keys/bitso_stage.key')
+        self.engine.load_key(config['keyFile'])
 
     def main_loop(self):
         while True:
@@ -204,7 +204,7 @@ class TestTriangularArbitrage(unittest.TestCase):
         f = open('arbitrage_config.json')
         arbitrage_config = json.load(f)
         f.close()
-        self.engine = ExchangeEngine()
+        self.engine = ExchangeEngine(arbitrage_config['url'])
         self.triangular_arb = CryptoEngineTriArbitrage(arbitrage_config, self.engine, mock=True)
         return super().setUp()
 
