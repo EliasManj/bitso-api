@@ -3,10 +3,8 @@ import json
 import hmac
 import time
 import unittest
-from datetime import datetime, timedelta
-import calendar
 import grequests
-from engines.exchanges.base import ExchangeEngineBase
+from engines.base import ExchangeEngineBase
 from urllib.parse import urlparse, urlencode
 import requests
 
@@ -160,7 +158,8 @@ class ExchangeEngine(ExchangeEngineBase):
                 r.parsed[book['book']] = {
                     'fees': book['fees']['flat_rate'],
                     'minimum_price': book['minimum_price'],
-                    'default_chart': book['default_chart']
+                    'default_chart': book['default_chart'],
+                    'minimum_amount': book['minimum_amount'],
                 }
 
         return res_hook

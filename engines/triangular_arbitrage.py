@@ -4,8 +4,13 @@ import grequests
 import json
 import time
 import logging
+import pyfiglet
 
-from exchanges.bitso import ExchangeEngine
+from engines.bitso import ExchangeEngine
+
+# title
+title = "Bitso API Bot"
+ascii_art = pyfiglet.figlet_format(title, font="slant")
 
 # Create a logger
 logger = logging.getLogger(__name__)
@@ -39,7 +44,7 @@ def _send_requests(requests):
     responses = grequests.map(requests)
     for response in responses:
         if not response:
-            printwt(responses)
+            logging.error(response.json())
             raise Exception
     return responses
 
@@ -56,14 +61,19 @@ class CryptoEngineTriArbitrage(object):
         self.tickerB = config['tickerB']
         self.tickerC = config['tickerC']
         self.tickers = [self.tickerA, self.tickerB, self.tickerC]
-        self.minProfitUSDT = 0.3
         self.open_orders = True
         self.openOrderCheckCount = 0
         self.engine = engine
         self.engine.load_key(config['keyFile'])
+        self.book_info = grequests.map([self.engine.get_available_books(books=[self.tickerPairA, self.tickerPairB, self.tickerPairC])])[0].parsed
+        self.trade_limit = 10
 
     def main_loop(self):
+        printwt(ascii_art)
+        n_of_trades = 0
         while True:
+            if n_of_trades >= self.trade_limit:
+                break
             if self.open_orders:
                 self.check_open_orders()
             else:
@@ -78,6 +88,7 @@ class CryptoEngineTriArbitrage(object):
                         printwt("------- Placed Orders -------")
                         printwt(orders)
                         self.open_orders = True
+                        n_of_trades += 1
                     else:
                         printwt("------- No orders placed for Mock mode -------")
                     printwt("------- Balance after trade -------")
@@ -123,6 +134,9 @@ class CryptoEngineTriArbitrage(object):
         if bid_route > 1 or ask_route > 1:
             if bid_route > ask_route:
                 max_amounts = self.get_max_amounts_bid_route(books)
+                if not self.validate_max_amounts(max_amounts):
+                    printwt("Can't make trade, amounts too low")
+                    return None
                 printwt("------- Route -------")
                 printwt(
                     f'Sell {max_amounts[2]} of {self.tickerA} for {max_amounts[2] * books[2]["bid"]["price"]} of {self.tickerC}')
@@ -157,6 +171,9 @@ class CryptoEngineTriArbitrage(object):
             else:
                 printwt("------- Route -------")
                 max_amounts = self.get_max_amounts_ask_route(books)
+                if not self.validate_max_amounts(max_amounts):
+                    printwt("Can't make trade, amounts too low")
+                    return None
                 printwt(
                     f'Sell {max_amounts[0]} of {self.tickerA} for {max_amounts[0] * books[0]["bid"]["price"]} of {self.tickerB}')
                 printwt(f'Then sell {max_amounts[1]} of {self.tickerB} for {self.tickerC}')
@@ -188,14 +205,32 @@ class CryptoEngineTriArbitrage(object):
         else:
             return None
 
+    def validate_max_amounts(self, amounts):
+        ticketPairA_amnt = amounts[0]
+        ticketPairB_amnt = amounts[1]
+        ticketPairC_amnt = amounts[2]
+        minAmountA = self.book_info[self.tickerPairA]['minimum_amount']
+        minAmountB = self.book_info[self.tickerPairB]['minimum_amount']
+        minAmountC = self.book_info[self.tickerPairC]['minimum_amount']
+        if ticketPairA_amnt < minAmountA:
+            printwt(f"Min amount for trading {self.tickerPairA} is {minAmountA}")
+            return False
+        elif ticketPairB_amnt < minAmountB:
+            printwt(f"Min amount for trading {self.tickerPairB} is {minAmountB}")
+            return False
+        elif ticketPairC_amnt < minAmountC:
+            printwt(f"Min amount for trading {self.tickerPairC} is {minAmountC}")
+            return False
+        return True
+
     def get_max_amounts_ask_route(self, books):
         # sell eth for btc -> sell btc for mxn -> buy eth with mxn
         # get balances
         balances = grequests.map([self.engine.get_balance(tickers=[self.tickerA, self.tickerB, self.tickerC])])[
             0].parsed
-        max_amount_eth_btc = self.calculate_max_amount(books[0], balances, 'bid') / 2
-        max_amount_btc_mxn = self.calculate_max_amount(books[1], balances, 'bid', prev_order=books[0]['bid']) / 2
-        max_amount_eth_mxn = self.calculate_max_amount(books[2], balances, 'ask', prev_order=books[1]['bid']) / 2
+        max_amount_eth_btc = self.calculate_max_amount(books[0], balances, 'bid')
+        max_amount_btc_mxn = self.calculate_max_amount(books[1], balances, 'bid', prev_order=books[0]['bid'])
+        max_amount_eth_mxn = self.calculate_max_amount(books[2], balances, 'ask', prev_order=books[1]['bid'])
         printwt("Maximum amount for bid eth_btc: " + str(max_amount_eth_btc))
         printwt("Maximum amount for bid btc_mxn: " + str(max_amount_btc_mxn))
         printwt("Maximum amount for ask eth_mxn: " + str(max_amount_eth_mxn))
@@ -205,9 +240,9 @@ class CryptoEngineTriArbitrage(object):
         # sell eth for mx -> buy btc with mxn -> buy eth with btc
         balances = grequests.map([self.engine.get_balance(tickers=[self.tickerA, self.tickerB, self.tickerC])])[
             0].parsed
-        max_amount_eth_btc = self.calculate_max_amount(books[0], balances, 'ask') / 2
-        max_amount_btc_mxn = self.calculate_max_amount(books[1], balances, 'ask', prev_order=books[0]['ask']) / 2
-        max_amount_eth_mxn = self.calculate_max_amount(books[2], balances, 'bid', prev_order=books[1]['ask']) / 2
+        max_amount_eth_btc = self.calculate_max_amount(books[0], balances, 'ask')
+        max_amount_btc_mxn = self.calculate_max_amount(books[1], balances, 'ask', prev_order=books[0]['ask'])
+        max_amount_eth_mxn = self.calculate_max_amount(books[2], balances, 'bid', prev_order=books[1]['ask'])
         printwt("Maximum amount for ask eth_btc:" + str(max_amount_eth_btc))
         printwt("Maximum amount for ask btc_mxn:" + str(max_amount_btc_mxn))
         printwt("Maximum amount for bid eth_mxn:" + str(max_amount_eth_mxn))
@@ -219,7 +254,7 @@ class CryptoEngineTriArbitrage(object):
                               order[order_type]['amount'])
         if prev_order:
             amount_from_prev_trade = prev_order['amount']
-            amount_to_trade += amount_from_prev_trade
+            #amount_to_trade += amount_from_prev_trade
         return round(amount_to_trade, 8)
 
     def place_orders(self, orders):
@@ -228,8 +263,7 @@ class CryptoEngineTriArbitrage(object):
             self.engine.place_order(orders[1]),
             self.engine.place_order(orders[2])
         ]
-        order_responses = _send_requests(orders)
-        jsons = [order.json() for order in order_responses]
+        order_responses = [res.json() for res in _send_requests(orders)]
         self.open_orders = True
         return order_responses
 
