@@ -71,14 +71,14 @@ class CryptoEngineTriArbitrage(object):
     def main_loop(self):
         printwt(ascii_art)
         n_of_trades = 0
+        printwt("------- Balance -------")
+        printwt(self.get_balances())
         while True:
             if n_of_trades >= self.trade_limit:
                 break
             if self.open_orders:
                 self.check_open_orders()
             else:
-                printwt("------- Balance -------")
-                printwt(self.get_balances())
                 opportunities = self.check_order_book()
                 if opportunities:
                     printwt("------- Opportunities -------")
@@ -131,6 +131,7 @@ class CryptoEngineTriArbitrage(object):
         fee_factor3 = 1 - float(fees[self.tickerPairC]['taker_fee_decimal']) / 100
         bid_route = (1 / books[0]['ask']['price'])*fee_factor1 / books[1]['ask']['price']*fee_factor2 * books[2]['bid']['price']*fee_factor3
         ask_route = (1 * books[0]['bid']['price'])*fee_factor1 / books[2]['ask']['price']*fee_factor3 * books[1]['bid']['price']*fee_factor2
+        printwt(f'Bid route: {bid_route}; Ask route: {ask_route}')
         if bid_route > 1 or ask_route > 1:
             if bid_route > ask_route:
                 max_amounts = self.get_max_amounts_bid_route(books)
