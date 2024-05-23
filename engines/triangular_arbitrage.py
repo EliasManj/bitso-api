@@ -4,7 +4,10 @@ import grequests
 import json
 import time
 import logging
+import logging.handlers
 import pyfiglet
+from logging.handlers import TimedRotatingFileHandler
+from logstash_async.handler import AsynchronousLogstashHandler
 
 from engines.bitso import ExchangeEngine
 
@@ -14,17 +17,26 @@ ascii_art = pyfiglet.figlet_format(title, font="slant")
 
 # Create a logger
 logger = logging.getLogger(__name__)
-
-# Set the logging level
 logger.setLevel(logging.DEBUG)
 
 # Create console handler and set level to INFO
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 
-# Create file handler and set level to DEBUG
-file_handler = logging.FileHandler('app.log')
+# Create timed rotating file handler and set level to DEBUG
+file_handler = TimedRotatingFileHandler(
+    'app.log', when='midnight', interval=1, backupCount=7, encoding='utf-8', delay=False, utc=False
+)
 file_handler.setLevel(logging.DEBUG)
+
+# Create Logstash handler
+# Create Logstash handler
+logstash_handler = AsynchronousLogstashHandler(
+    host='logstash',  # Use the service name as defined in docker-compose.yml
+    port=5000,
+    database_path=None  # Use None if you don't need a persistent queue
+)
+logstash_handler.setLevel(logging.INFO)
 
 # Create a logging format
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
@@ -32,10 +44,12 @@ formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 # Set the formatter
 console_handler.setFormatter(formatter)
 file_handler.setFormatter(formatter)
+logstash_handler.setFormatter(formatter)
 
 # Add the handlers to the logger
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
+logger.addHandler(logstash_handler)
 
 def printwt(msg):
     logger.info(f'{datetime.utcnow()} :: {msg}')
@@ -44,7 +58,7 @@ def _send_requests(requests):
     responses = grequests.map(requests)
     for response in responses:
         if not response:
-            logging.error(response.json())
+            logger.error(response.json())
             raise Exception
     return responses
 
@@ -89,6 +103,7 @@ class CryptoEngineTriArbitrage(object):
                         printwt(orders)
                         self.open_orders = True
                         n_of_trades += 1
+                        time.sleep(300)
                     else:
                         printwt("------- No orders placed for Mock mode -------")
                     printwt("------- Balance after trade -------")
@@ -115,6 +130,7 @@ class CryptoEngineTriArbitrage(object):
             printwt("Open Orders")
             printwt(orders)
             self.open_orders = True
+            time.sleep(300)
             return
 
     def check_order_book(self):
