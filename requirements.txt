@@ -1,0 +1,5 @@
+grequests
+pyfiglet
+requests
+elasticsearch
+python-logstash-async
