@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import unittest
 import grequests
 import json
@@ -81,6 +81,7 @@ class CryptoEngineTriArbitrage(object):
         self.engine.load_key(config['keyFile'])
         self.book_info = grequests.map([self.engine.get_available_books(books=[self.tickerPairA, self.tickerPairB, self.tickerPairC])])[0].parsed
         self.trade_limit = 10
+        self.balance_log = None
 
     def main_loop(self):
         printwt(ascii_art)
@@ -127,11 +128,22 @@ class CryptoEngineTriArbitrage(object):
             return
         # some orders have been filled but orders still pending
         if 0 < len(orders) < 3:
-            printwt("Open Orders")
-            printwt(orders)
             self.open_orders = True
+            self.print_open_orders(orders)
             time.sleep(300)
             return
+
+    def print_open_orders(self, orders):
+        current_datetime = datetime.now()
+        if self.balance_log is None:
+            printwt("Open Orders")
+            printwt(orders)
+            self.balance_log = current_datetime
+        else:
+            if current_datetime >= self.balance_log + timedelta(minutes=30):
+                self.balance_log = current_datetime
+                printwt("Open Orders")
+                printwt(orders)
 
     def check_order_book(self):
         rs = [
