@@ -110,3 +110,4 @@ ENV/
 *rc.py
 
 # Include your own custom rules here, such as IDE-specific files, etc.
+app.log.*
