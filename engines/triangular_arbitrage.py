@@ -294,7 +294,8 @@ class CryptoEngineTriArbitrage(object):
         ]
         order_responses = [res.json() for res in _send_requests(orders)]
         self.open_orders = True
-        return order_responses
+        printwt(order_responses)
+        return orders
 
 
 class TestTriangularArbitrage(unittest.TestCase):
