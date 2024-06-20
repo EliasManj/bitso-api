@@ -3,15 +3,13 @@ import unittest
 import grequests
 import json
 import time
-import logging
 import logging.handlers
 import pyfiglet
 from logging.handlers import TimedRotatingFileHandler
-from logstash_async.handler import AsynchronousLogstashHandler
 
 from engines.bitso import ExchangeEngine
 
-# title
+# Title
 title = "Bitso API Bot"
 ascii_art = pyfiglet.figlet_format(title, font="slant")
 
@@ -29,27 +27,16 @@ file_handler = TimedRotatingFileHandler(
 )
 file_handler.setLevel(logging.DEBUG)
 
-# Create Logstash handler
-# Create Logstash handler
-logstash_handler = AsynchronousLogstashHandler(
-    host='logstash',  # Use the service name as defined in docker-compose.yml
-    port=5000,
-    database_path=None  # Use None if you don't need a persistent queue
-)
-logstash_handler.setLevel(logging.INFO)
-
 # Create a logging format
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
 # Set the formatter
 console_handler.setFormatter(formatter)
 file_handler.setFormatter(formatter)
-logstash_handler.setFormatter(formatter)
 
 # Add the handlers to the logger
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
-logger.addHandler(logstash_handler)
 
 def printwt(msg):
     logger.info(f'{datetime.utcnow()} :: {msg}')
