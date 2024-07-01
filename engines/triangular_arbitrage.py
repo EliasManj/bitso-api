@@ -8,7 +8,7 @@ import pyfiglet
 from logging.handlers import TimedRotatingFileHandler
 import os
 from dotenv import load_dotenv
-from alerts import Alerts
+from .alerts import Alerts
 
 from engines.bitso import ExchangeEngine
 
@@ -73,6 +73,7 @@ class CryptoEngineTriArbitrage(object):
         self.trade_limit = 10
         self.balance_log = None
         # email alerts
+        load_dotenv()
         self.emailuser = os.getenv('EMAIL_USR')
         self.emailpwd = os.getenv('EMAIL_PWD')
         self.emailto = os.getenv('EMAIL_TO')
