@@ -6,6 +6,9 @@ import time
 import logging.handlers
 import pyfiglet
 from logging.handlers import TimedRotatingFileHandler
+import os
+from dotenv import load_dotenv
+from alerts import Alerts
 
 from engines.bitso import ExchangeEngine
 
@@ -69,6 +72,11 @@ class CryptoEngineTriArbitrage(object):
         self.book_info = grequests.map([self.engine.get_available_books(books=[self.tickerPairA, self.tickerPairB, self.tickerPairC])])[0].parsed
         self.trade_limit = 10
         self.balance_log = None
+        # email alerts
+        self.emailuser = os.getenv('EMAIL_USR')
+        self.emailpwd = os.getenv('EMAIL_PWD')
+        self.emailto = os.getenv('EMAIL_TO')
+        self.alertsservice = Alerts(self.emailuser, self.emailpwd)
 
     def main_loop(self):
         printwt(ascii_art)
@@ -89,6 +97,7 @@ class CryptoEngineTriArbitrage(object):
                         orders = self.place_orders(opportunities)
                         printwt("------- Placed Orders -------")
                         printwt(orders)
+                        self.alertsservice.email_alert(self.emailto, "Order Placed", orders)
                         self.open_orders = True
                         n_of_trades += 1
                         time.sleep(300)

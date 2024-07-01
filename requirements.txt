@@ -3,3 +3,4 @@ pyfiglet
 requests
 elasticsearch
 python-logstash-async
+python-dotenv
