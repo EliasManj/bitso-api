@@ -8,8 +8,7 @@ import pyfiglet
 from logging.handlers import TimedRotatingFileHandler
 import os
 from dotenv import load_dotenv
-from alerts import Alerts
-
+from engines.alerts import Alerts
 from engines.bitso import ExchangeEngine
 
 # Title
