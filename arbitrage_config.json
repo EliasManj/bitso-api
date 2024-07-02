@@ -1,10 +1,10 @@
 {
   "keyFile": "keys/bitso.key",
   "url":"https://bitso.com/api",
-  "tickerPairA": "eth_btc",
-  "tickerPairB": "btc_mxn",
-  "tickerPairC": "eth_mxn",
-  "tickerA": "eth",
-  "tickerB": "btc",
-  "tickerC": "mxn"
+  "tickerPairA": "eth_mxn",
+  "tickerPairB": "eth_btc",
+  "tickerPairC": "btc_mxn",
+  "tickerA": "mxn",
+  "tickerB": "eth",
+  "tickerC": "btc"
 }

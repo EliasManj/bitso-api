@@ -8,7 +8,7 @@ import pyfiglet
 from logging.handlers import TimedRotatingFileHandler
 import os
 from dotenv import load_dotenv
-from .alerts import Alerts
+from alerts import Alerts
 
 from engines.bitso import ExchangeEngine
 
@@ -154,22 +154,19 @@ class CryptoEngineTriArbitrage(object):
         fee_factor1 = 1 - float(fees[self.tickerPairA]['taker_fee_decimal']) / 100
         fee_factor2 = 1 - float(fees[self.tickerPairB]['taker_fee_decimal']) / 100
         fee_factor3 = 1 - float(fees[self.tickerPairC]['taker_fee_decimal']) / 100
-        bid_route = (1 / books[0]['ask']['price'])*fee_factor1 / books[1]['ask']['price']*fee_factor2 * books[2]['bid']['price']*fee_factor3
-        ask_route = (1 * books[0]['bid']['price'])*fee_factor1 / books[2]['ask']['price']*fee_factor3 * books[1]['bid']['price']*fee_factor2
+        bid_route = (1/books[0]['bid']['price'])*books[1]['ask']['price']*books[2]['ask']['price']*fee_factor1*fee_factor2*fee_factor3
+        ask_route = books[2]['bid']['price']*books[1]['bid']['price']*(1/books[0]['ask']['price'])*fee_factor1*fee_factor2*fee_factor3
         printwt(f'Bid route: {bid_route}; Ask route: {ask_route}')
-        if bid_route > 1 or ask_route > 1:
+        if bid_route > 1 or ask_route > 1 or True:
             if bid_route > ask_route:
                 max_amounts = self.get_max_amounts_bid_route(books)
                 if not self.validate_max_amounts(max_amounts):
                     printwt("Can't make trade, amounts too low")
-                    return None
+                    #return None
                 printwt("------- Route -------")
-                printwt(
-                    f'Sell {max_amounts[2]} of {self.tickerA} for {max_amounts[2] * books[2]["bid"]["price"]} of {self.tickerC}')
-                printwt(
-                    f'Then buy {max_amounts[1]} of {self.tickerB} with {max_amounts[1] * books[1]["ask"]["price"]} of {self.tickerC}')
-                printwt(
-                    f'Then buy {max_amounts[0]} of {self.tickerA} with {max_amounts[0] * books[0]["ask"]["price"]} of {self.tickerB}')
+                printwt(f"Bid {books[0]['book']} at price {books[0]['bid']['price']} with {max_amounts[0]} of {self.tickerA}")
+                printwt(f"Ask {books[1]['book']} at price {books[1]['ask']['price']} with {max_amounts[1]} of {self.tickerB}")
+                printwt(f"Ask {books[2]['book']} at price {books[2]['ask']['price']} with {max_amounts[2]} of {self.tickerC}")
                 orders = [
                     {
                         'book': self.tickerPairA,
@@ -200,10 +197,9 @@ class CryptoEngineTriArbitrage(object):
                 if not self.validate_max_amounts(max_amounts):
                     printwt("Can't make trade, amounts too low")
                     return None
-                printwt(
-                    f'Sell {max_amounts[0]} of {self.tickerA} for {max_amounts[0] * books[0]["bid"]["price"]} of {self.tickerB}')
-                printwt(f'Then sell {max_amounts[1]} of {self.tickerB} for {self.tickerC}')
-                printwt(f'Then buy {max_amounts[2]} of {self.tickerA} with {self.tickerC}')
+                printwt(f"Bid {books[2]['book']} at price {books[2]['bid']['price']}")
+                printwt(f"Bid {books[1]['book']} at price {books[1]['bid']['price']}")
+                printwt(f"Ask {books[0]['book']} at price {books[0]['ask']['price']}")
                 orders = [
                     {
                         'book': self.tickerPairA,
@@ -254,9 +250,9 @@ class CryptoEngineTriArbitrage(object):
         # get balances
         balances = grequests.map([self.engine.get_balance(tickers=[self.tickerA, self.tickerB, self.tickerC])])[
             0].parsed
-        max_amount_eth_btc = self.calculate_max_amount(books[0], balances, 'bid')
-        max_amount_btc_mxn = self.calculate_max_amount(books[1], balances, 'bid', prev_order=books[0]['bid'])
-        max_amount_eth_mxn = self.calculate_max_amount(books[2], balances, 'ask', prev_order=books[1]['bid'])
+        max_amount_eth_mxn = self.calculate_max_amount(books[0], balances, 'ask')
+        max_amount_eth_btc = self.calculate_max_amount(books[1], balances, 'bid')
+        max_amount_btc_mxn = self.calculate_max_amount(books[2], balances, 'bid')
         printwt("Maximum amount for bid eth_btc: " + str(max_amount_eth_btc))
         printwt("Maximum amount for bid btc_mxn: " + str(max_amount_btc_mxn))
         printwt("Maximum amount for ask eth_mxn: " + str(max_amount_eth_mxn))
@@ -266,21 +262,20 @@ class CryptoEngineTriArbitrage(object):
         # sell eth for mx -> buy btc with mxn -> buy eth with btc
         balances = grequests.map([self.engine.get_balance(tickers=[self.tickerA, self.tickerB, self.tickerC])])[
             0].parsed
-        max_amount_eth_btc = self.calculate_max_amount(books[0], balances, 'ask')
-        max_amount_btc_mxn = self.calculate_max_amount(books[1], balances, 'ask', prev_order=books[0]['ask'])
-        max_amount_eth_mxn = self.calculate_max_amount(books[2], balances, 'bid', prev_order=books[1]['ask'])
+        max_amount_eth_mxn = self.calculate_max_amount(books[0], balances, 'bid')
+        max_amount_eth_btc = self.calculate_max_amount(books[1], balances, 'ask')
+        max_amount_btc_mxn = self.calculate_max_amount(books[2], balances, 'ask')
         printwt("Maximum amount for ask eth_btc:" + str(max_amount_eth_btc))
         printwt("Maximum amount for ask btc_mxn:" + str(max_amount_btc_mxn))
         printwt("Maximum amount for bid eth_mxn:" + str(max_amount_eth_mxn))
         return [max_amount_eth_btc, max_amount_btc_mxn, max_amount_eth_mxn]
 
-    def calculate_max_amount(self, order, balance, order_type, prev_order=None):
-        ticker_from, ticker_to = order['book'].split('_')
-        amount_to_trade = min(balance[ticker_from], balance[ticker_to] / order[order_type]['price'],
-                              order[order_type]['amount'])
-        if prev_order:
-            amount_from_prev_trade = prev_order['amount']
-            #amount_to_trade += amount_from_prev_trade
+    def calculate_max_amount(self, order, balance, order_type):
+        ticker_left, ticker_right = order['book'].split('_')
+        if order_type == 'bid':
+            amount_to_trade = min(balance[ticker_right], order[order_type]['amount']*order[order_type]['price'])
+        else:
+            amount_to_trade = min(balance[ticker_left], order[order_type]['amount'])
         return round(amount_to_trade, 8)
 
     def place_orders(self, orders):
