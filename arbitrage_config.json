@@ -1,6 +1,8 @@
 {
   "keyFile": "keys/bitso.key",
+  "test_keyFile": "keys/bitso_stage.key",
   "url":"https://bitso.com/api",
+  "test_url":"https://stage.bitso.com/api",
   "tickerPairA": "eth_mxn",
   "tickerPairB": "eth_btc",
   "tickerPairC": "btc_mxn",

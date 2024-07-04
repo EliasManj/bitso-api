@@ -159,7 +159,8 @@ class ExchangeEngine(ExchangeEngineBase):
                     'fees': book['fees']['flat_rate'],
                     'minimum_price': book['minimum_price'],
                     'default_chart': book['default_chart'],
-                    'minimum_amount': float(book['minimum_amount']),
+                    'minimum_amount': float(book['minimum_amount'],),
+                    'maximum_amount': float(book['maximum_amount'],),
                 }
 
         return res_hook
