@@ -168,6 +168,10 @@ class CryptoEngineTriArbitrage(object):
             self.engine.get_order_book_innermost(book=self.tickerPairC)
         ]
         books = [res.parsed for res in _send_requests(rs)]
+        # check that there a re bids and asks
+        for book in books:
+            if 'bid' not in book or 'ask' not in book:
+                return None
         fees = grequests.map([self.engine.list_fees(books=[self.tickerPairA, self.tickerPairB, self.tickerPairC])])[0].parsed
         # bid route
         bid_route = self.get_bid_route(books, fees)

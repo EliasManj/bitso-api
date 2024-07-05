@@ -126,17 +126,17 @@ class ExchangeEngine(ExchangeEngineBase):
             json_data = r.json()
             r.parsed = {}
             book = json_data['payload']
-            r.parsed = {
-                'book': factory_kwargs['book'],
-                'bid': {
-                    'price': float(book['bids'][0]['price']),
-                    'amount': float(book['bids'][0]['amount'])
-                },
-                'ask': {
+            r.parsed = { 'book': factory_kwargs['book'] }
+            if book['bids']:
+                r.parsed['bid'] = {
+                        'price': float(book['bids'][0]['price']),
+                        'amount': float(book['bids'][0]['amount'])
+                    }
+            if book['asks']:
+                r.parsed['ask'] = {
                     'price': float(book['asks'][0]['price']),
                     'amount': float(book['asks'][0]['amount'])
                 }
-            }
         return res_hook
 
     def get_ticker(self, symbol):
