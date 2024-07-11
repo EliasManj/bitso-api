@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/usr/local/bot/arbitrage-bot/
-ExecStart=/usr/local/bot/arbitrage-bot/venv/bin/python /usr/local/bot/arbitrage-bot/main.py
+ExecStart=/usr/local/bot/arbitrage-bot/venv/bin/python /usr/local/bot/arbitrage-bot/main.py --prod
 Restart=on-failure
 # Other configurations you might want
 # Environment=VARIABLE=value
